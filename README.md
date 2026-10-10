@@ -35,7 +35,7 @@ The linter checks structural patterns only. It does not compare an original text
 
 The deterministic linter checks semicolons, a short list of soft phrasal verbs (spin up, reach out, dive into, kick off, circle back, touch base), nominalizations, marketing adjectives, passive voice, present-perfect forms (including irregular participles such as "has run"), long sentences, synonym rotation, and dangling conjunctions in supported list items. It does not check noun-cluster length (that needs part-of-speech tagging) and it does not know phrasal verbs outside its list, so "take off the panel" passes. It never flags hedges or modality.
 
-The repo's own prose does not lint clean: the rule tables quote the patterns they forbid, and some sentences run long. Lint it with `python scripts/ste-lint.py --baseline 41 SKILL.md` and read the findings as examples, not defects.
+The repo's own prose does not lint clean: the rule tables quote the patterns they forbid, and some sentences run long. Lint it with `python scripts/ste-lint.py --baseline 54 SKILL.md` and read the findings as examples, not defects.
 
 The dangling-conjunction rule checks list markers at the start of a line with zero to three leading spaces and ASCII spaces after the marker. It supports unordered markers `-`, `*`, and `+`, and ordered numeric markers that end in `.` or `)`, such as `1.` or `1)`. It checks indented continuation lines up to the final meaningful line. It does not parse list syntax inside blockquotes, lazy continuation, or full nested-list semantics. A standalone line with four or more leading spaces is not treated as a list marker. Within an active list item, indentation at the computed content column is treated as continuation text. Fence detection follows the linter's existing simple rule: a stripped line beginning with three backticks or three tildes toggles the fence state.
 
@@ -45,6 +45,16 @@ It does **not** reproduce ASD's official ~900-word approved dictionary. The stan
 
 Full rule summary and citations: [`references/writing-rules.md`](references/writing-rules.md).
 
+## Chinese Support (中文支援)
+
+The skill also rewrites Chinese text (Traditional Chinese first, zh-TW). It rewrites in the same language as the input. In mixed zh/en text, each segment stays in its own language. It does not translate unless you ask. ASD-STE100 has no Chinese edition, so the Chinese rules are this fork's own design: one instruction per sentence, an explicit actor, a 40-character cap for descriptions (30 for instructions), no 「；」, lists instead of long 「、」 chains, one term per meaning, and hedges (可能、也許、應該、大概) kept exactly. Rules and rationale: [`references/chinese-rules.md`](references/chinese-rules.md). Examples: Part 3 of [`examples/before-after.md`](examples/before-after.md).
+
+本技能也支援中文改寫（以繁體中文為主）。輸出語言與輸入相同，中英混合文字各段保留原語言，除非要求，否則不翻譯。ASD-STE100 沒有中文版，中文規則是本 fork 自訂的控制語言規則：一句一指令、主詞明確、描述句上限 40 字（指令句 30 字）、不用分號、長串頓號改用清單、一詞一義，並且完整保留「可能、也許、應該、大概」等推測語氣。
+
+The linter classifies each sentence by language. Chinese sentences skip the English-only rules. They get these checks: semicolons (「；」 and 「;」), the 40-character cap, Chinese marketing adjectives, and long 「、」 chains (advisory).
+
+This fork lives at [github.com/jhangyu/asd-ste100-skill](https://github.com/jhangyu/asd-ste100-skill). The install commands below use it.
+
 ## Installation
 
 ### Quick Install (npx skills)
@@ -52,7 +62,7 @@ Full rule summary and citations: [`references/writing-rules.md`](references/writ
 The fastest way to install this skill is the [skills CLI](https://skills.sh/) — no clone, no path setup. Run it from your project root:
 
 ```bash
-npx skills add danyuchn/asd-ste100-skill
+npx skills add jhangyu/asd-ste100-skill
 ```
 
 This pulls the skill from the GitHub repo and installs it for the current project. The CLI sends anonymous install telemetry (skill name and timestamp, no personal or device information) to help rank skills on the skills.sh leaderboard. Set `DISABLE_TELEMETRY=1` to opt out.
@@ -62,7 +72,7 @@ Update later with `npx skills update`.
 ### Clone
 
 ```bash
-git clone https://github.com/danyuchn/asd-ste100-skill ~/.claude/skills/asd-ste100
+git clone https://github.com/jhangyu/asd-ste100-skill ~/.claude/skills/asd-ste100
 ```
 
 This clones the repo into `~/.claude/skills/`, making the skill available in every Claude Code project. Best for contributors and anyone who wants a live checkout that updates with `git pull`.

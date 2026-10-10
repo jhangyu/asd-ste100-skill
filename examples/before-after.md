@@ -87,6 +87,93 @@ Two deliberate calls worth stating rather than hiding:
 
 Flavored mode kept the explanatory rhythm and did not force one fixed term per concept. It still cut the marketing adjectives, the semicolon, and the length.
 
+## Part 3 — Chinese (中文) Examples
+
+These examples apply the Chinese rules from `references/chinese-rules.md`. The rewrite stays in Chinese. English identifiers stay in English. Length counts use the Chinese length unit: one Han character or one Latin run counts as 1, punctuation counts as 0.
+
+### Example E — Error message (錯誤訊息)
+
+**Before:**
+> 由於系統偵測到您的設定檔格式可能與目前版本不相容，因此本次的同步作業可能沒有被完整執行，建議您檢查設定檔並重新嘗試同步。
+
+**Violations flagged:**
+- Three claims in one sentence: a format mismatch, an incomplete sync, and a recommended action.
+- 57 characters, over the 40-character cap.
+- 被-passive hides who did not complete the sync.
+
+Not flagged: both 「可能」. The system does not know the cause. The rewrite keeps both hedges.
+
+**After:**
+> 設定檔格式可能與目前版本不相容。同步作業可能沒有完成。請檢查設定檔，再執行一次同步。
+
+### Example F — Tool description (工具說明)
+
+**Before:**
+> 本工具提供無縫的一站式資料同步體驗，可以自動偵測、比對、合併、備份、還原各個後端的資料；若發生衝突則依照設定進行處理。
+
+**Violations flagged:**
+- Marketing adjectives (無縫、一站式).
+- Five actions chained with 「、」.
+- Semicolon 「；」.
+- No actor in the conflict clause: who handles the conflict?
+
+**After:**
+> 本工具同步各個後端的資料。工具執行以下動作：
+> 1. 偵測資料變更。
+> 2. 比對各個後端的資料。
+> 3. 合併資料。
+> 4. 備份資料。
+> 5. 在需要時還原資料。
+>
+> 如果發生衝突，工具依照衝突策略設定處理衝突。
+
+### Example G — Inter-agent instruction (代理間指令)
+
+**Before:**
+> 等上游跑完沒錯的話就接著處理產出檔，不過逾時的時候有時候會產出不完整的檔案要注意。
+
+**Violations flagged:**
+- No actor: who waits, and who processes the output file?
+- Three facts in one sentence: a condition, an action, and a warning.
+- 39 characters, over the 30-character instruction cap. The linter does not flag it, because it checks only the 40-character description cap.
+
+Not flagged: 「有時候」. The rewrite keeps the frequency hedge.
+
+**After:**
+> 下游代理程式等待上游工作完成，且確認沒有錯誤。然後，下游代理程式讀取產出檔。警告：逾時有時候會產生不完整的產出檔。
+
+### Example H — Status report (狀態回報)
+
+**Before:**
+> 部署已大致完成，使用者端看起來正常，但部分用戶回報登入有問題，客戶服務那邊也收到幾件類似的反映。
+
+**Violations flagged:**
+- Synonym rotation: 「使用者」「用戶」 name the same referent. 「客戶服務」 is a different team and stays.
+- Four facts in one sentence, 44 characters.
+
+Not flagged: 「大致」「看起來」「部分」「幾件」. These carry the reporter's confidence and the scope. The rewrite keeps all of them.
+
+**After:**
+> 部署大致完成。使用者端看起來正常。部分使用者回報無法登入。客戶服務也收到幾件類似的回報。
+
+### Example I — Hedged statement (必須保留推測語氣)
+
+**Before:**
+> 這個錯誤應該是快取過期造成的，也許清除快取後就會恢復正常，不過也可能是網路問題。
+
+**Violations flagged:**
+- Three claims in one sentence.
+
+Not flagged: 「應該」「也許」「可能」. All three are hedges. The writer does not know the cause.
+
+**After:**
+> 這個錯誤應該是快取過期造成的。清除快取後，系統也許會恢復正常。原因也可能是網路問題。
+
+**Wrong rewrite (do not do this):**
+> 這個錯誤是快取過期造成的。清除快取即可恢復正常。
+
+This version reads better and is shorter. It is wrong: it turns a guess into a fact, and it deletes the second possible cause. The same rule applies as in Example B: a rewrite that removes a hedge has stopped being a rewrite.
+
 ## How to Read These Examples
 
 Part 1 shows the actual rules this skill is built on. Part 2 shows the transfer: the same discipline — one meaning per word, active voice, simple tense, one instruction per sentence, explicit conditions instead of buried subordinate clauses — makes machine-to-machine and cross-language text safer to parse, not just aircraft manuals.

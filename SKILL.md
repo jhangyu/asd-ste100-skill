@@ -1,7 +1,7 @@
 ---
 name: asd-ste100
-description: "Use when English text must be parsed without a human to resolve ambiguity — tool descriptions, error messages, inter-agent instructions, system prompts, status reports — and misreading has a real cost, or when text reads as dense, hedged, or easy to misparse. Triggers: disambiguate, STE100 rewrite, apply Simplified Technical English, plain-language rewrite, controlled-language rewrite, rewrite so an agent cannot misread this. Not for creative or marketing copy."
-version: 0.4.0
+description: "Use when English or Chinese (中文, zh-TW primary) text must be parsed without a human to resolve ambiguity — tool descriptions, error messages, inter-agent instructions, system prompts, status reports — and misreading has a real cost, or when text reads as dense, hedged, or easy to misparse. Rewrites in the same language as the input, mixed zh/en included. Triggers: disambiguate, STE100 rewrite, apply Simplified Technical English, plain-language rewrite, controlled-language rewrite, rewrite so an agent cannot misread this, 消歧義, 中文改寫, 控制語言改寫, 簡化技術中文, 改寫成不會被誤讀. Not for creative or marketing copy."
+version: 0.5.0
 ---
 
 # Simplified Technical English (ASD-STE100)
@@ -36,6 +36,17 @@ This skill encodes the **rule categories** of ASD-STE100 Issue 9 (Jan 2025): 53 
 It does **not** reproduce ASD's ~900-word approved dictionary verbatim. ASD-STE100 is free to obtain, but it is not free to redistribute: Issue 9, page 2 states that "no reproduction or publication of it, in whole or in part, shall be made without the written authority of an officer of ASD," and grants free reproduction rights only to eight listed categories (ASD/AIA/AIAC member associations and their member companies and customers, member-state defence ministries, A4A, airworthiness authorities, and universities and research institutes for educational purposes). This project is in none of them, so the dictionary stays out of this repo.
 
 Instead, this skill applies the *underlying principle* (pick the plainest, most common word available and use it the same way every time) rather than checking against a fixed word list. When exact ASD-approved wording matters (e.g. actual aircraft maintenance documentation), get the standard and check word-by-word against the real dictionary. Request it from the [official downloads page](https://www.asd-ste100.org/STE_downloads.html) — note that this is a request form that emails you a link, not a direct download.
+
+## Language Handling
+
+1. Detect the language of the input, sentence by sentence.
+2. Rewrite in the same language as the input. Chinese input gives Chinese output. English input gives English output.
+3. In mixed zh/en text, keep each segment in its own language. Do not translate an English term, identifier, or command inside a Chinese sentence. Do not translate a Chinese segment inside English text.
+4. Do not translate unless the user asks for a translation.
+5. Apply the English rules (Core Rewrite Rules) to English sentences. Apply the Chinese rules (Chinese Rewrite Rules) to Chinese sentences. A sentence that contains Chinese characters is a Chinese sentence.
+6. Write Traditional Chinese (zh-TW) by default. If the input is Simplified Chinese, keep Simplified Chinese.
+
+ASD-STE100 has no Chinese edition. The Chinese rules below are this skill's own controlled-language design. They carry over the STE principles: one meaning per word, one instruction per sentence, an explicit actor, length caps, and hedge preservation. They are not an official standard.
 
 ## Core Rewrite Rules
 
@@ -73,6 +84,28 @@ STE permits infinitive, imperative, simple present, simple past, simple future, 
 
 Aircraft manuals never need present perfect, so the exclusion costs the standard nothing. Other text is not always so lucky. "The job has completed" (and its output is available now) and "the job completed" (at some past point) are different statements, and status text frequently needs the first. **Where the compound form carries information the simple form cannot — current relevance, or a hedge as in "may have failed" — keep it and flag the departure.** Elsewhere, follow the rule.
 
+## Chinese Rewrite Rules
+
+Use these rules for Chinese sentences. The "Linter" column shows what `scripts/ste-lint.py` checks. "Hard" findings fail the run. "Advisory" findings never fail the run. "Not checked" rules need judgment. Full rationale and examples: `references/chinese-rules.md`.
+
+**Length unit.** One Han character counts as 1. One run of Latin letters or digits (a word, an identifier, a number) counts as 1. Punctuation and spaces count as 0.
+
+| Rule | Do | Don't | Linter |
+|---|---|---|---|
+| 一句一指令 (one instruction per sentence) | 「開啟檔案。讀取第 3 行。」 | 「開啟檔案並讀取第 3 行，然後確認是否相符。」 | Not checked |
+| Sentence length | ≤30 characters for instructions/procedures, ≤40 characters for descriptions | Long sentences that chain clauses with 「，」 | Hard: >40 |
+| Explicit actor (主詞明確) | 「代理程式刪除暫存檔。」 | Drop the subject when two or more actors could do the action (「收到後刪除暫存檔。」— who deletes?) | Not checked |
+| No semicolons | Split into separate sentences with 「。」 | 「；」 or 「;」 in Chinese text | Hard |
+| Lists for sequences | Use a numbered list for 3+ steps, and for 5+ items | Long 「、」 chains, or 「並且……然後……接著……」 chains | Advisory: 5+ items chained with 、 |
+| 一詞一義 (one term, one meaning) | Pick one name for one referent and reuse it (always 「使用者」) | Rotate 「使用者／用戶／客戶」 for the same referent | Not checked |
+| No stacked noun piles (長串名詞堆疊) | ≤3 nouns stacked; unpack the rest with 「的」 or a clause | 「代理任務佇列優先順序處理器設定檔」 | Not checked |
+| Keep hedges | 「請求可能已失敗。」 stays 「可能」 | Promote 可能／也許／應該／大概 to a fact (「請求已失敗。」) | Never flagged |
+| Avoid 被-passive when the actor matters | 「排程器刪除了這個工作。」 | 「這個工作被刪除了。」— unless the actor is unknown or irrelevant | Not checked |
+| Keep measure words and scope qualifiers | 「只刪除 3 個過期的快取檔。」 | 「刪除快取。」— drops 只, the count, and 過期的 | Not checked |
+| No marketing adjectives | Delete, or replace with the measurement | 無縫、強大、極致、全方位、一站式、頂級、革命性、業界領先、極速 | Hard |
+
+The Two Modes apply to Chinese the same way. In STE-flavored mode, keep the structural rules and treat 一詞一義 as advisory.
+
 ## Scan Checklist
 
 These six habits cover most of what makes machine-written English hard to parse. Each one is mechanical: you can point at the exact word or punctuation mark that breaks the rule, with no judgment call. Scan for all six before you rewrite anything.
@@ -88,7 +121,7 @@ These six habits cover most of what makes machine-written English hard to parse.
 
 1. Pick the mode (Strict or STE-flavored). Say which only when the user asked for the rule table — see Output Format.
 2. Read the input text once for meaning — do not start rewriting before you understand what it must still say afterward.
-3. Walk it sentence by sentence. Flag every rule violation from the Core Rewrite Rules tables and every habit from the Scan Checklist. In STE-flavored mode, flag the lexical rules but do not enforce them. For a mechanical first pass over the structural rules, run `scripts/ste-lint.py` (stdin or file args, `--json` for structured output); it checks semicolons, sentence length, phrasal verbs, nominalization, marketing adjectives, synonym rotation, dangling-conjunction in supported list items, passive voice, and compound tenses, and by design never flags hedges or modality. `--baseline N` tolerates N hard violations (for adopting on existing docs); `--disable rule1,rule2` silences named rules.
+3. Walk it sentence by sentence. Flag every rule violation from the Core Rewrite Rules tables and every habit from the Scan Checklist. In STE-flavored mode, flag the lexical rules but do not enforce them. For a mechanical first pass over the structural rules, run `scripts/ste-lint.py` (stdin or file args, `--json` for structured output); it checks semicolons, sentence length, phrasal verbs, nominalization, marketing adjectives, synonym rotation, dangling-conjunction in supported list items, passive voice, and compound tenses, and by design never flags hedges or modality. For Chinese sentences it checks semicolons (；and ;), the 40-character cap, Chinese marketing adjectives, and long 、 chains. It skips the English-only rules there, and it never flags Chinese hedges (可能／也許／應該／大概). `--baseline N` tolerates N hard violations (for adopting on existing docs); `--disable rule1,rule2` silences named rules.
 4. Rewrite each flagged sentence to fix the violation while preserving the original meaning exactly. If a rewrite would drop necessary precision (a safety condition, a scope qualifier, a number), keep the longer phrasing and flag it instead of silently simplifying.
    - **Check modality before you commit to a rewrite.** Hedges ("may", "could", "sometimes", "is likely to") carry the author's confidence, and confidence is content. A shorter sentence that upgrades a hedge to a fact is not a simplification — it is a different claim. This is the most common way a well-intentioned STE rewrite goes wrong, because hedges are exactly what a length cap tempts you to cut.
    - Never add a fact the source did not state. A rewrite that reads better because it supplies a cause, a frequency, or a mechanism has stopped being a rewrite.
@@ -118,6 +151,7 @@ Follow the table with a one-line note on anything you deliberately did **not** s
 
 **Will:**
 - Rewrite ambiguous or dense English into short, single-meaning, active-voice sentences.
+- Rewrite ambiguous or dense Chinese into short sentences with an explicit actor and one instruction each, in the same language as the input.
 - Return the rewritten text alone by default, and name the rules it applied when the user asks.
 - Preserve every fact, condition, and scope qualifier in the original.
 - Preserve the strength of every hedge, and add no claim the source did not make.
@@ -125,15 +159,17 @@ Follow the table with a one-line note on anything you deliberately did **not** s
 
 **Will not:**
 - Reproduce ASD's official ~900-word dictionary as if it were memorized verbatim — always treat the official download as the source of truth for exact approved wording.
+- Translate between Chinese and English unless the user asks for a translation.
 - Simplify creative, marketing, or persuasive copy where voice and nuance are the point.
 - Silently drop a safety condition, exception, or scope qualifier to shorten a sentence — it will flag the trade-off instead.
-- Convert "may have failed" into "failed", or "could be caused by X" into "X is the cause" — losing a hedge changes the claim.
+- Convert "may have failed" into "failed", 「可能已失敗」 into 「已失敗」, or "could be caused by X" into "X is the cause" — losing a hedge changes the claim.
 - Guarantee an aerospace/defense-grade STE-compliant document. This is a general-purpose clarity tool inspired by STE, not a certified STE authoring tool.
 - Make weak content true or useful. STE fixes the *form* of a text, not its substance. A hollow paragraph rewritten under these rules becomes a clean, short, well-punctuated hollow paragraph. If the text has nothing to say, no rewrite fixes that — say so instead of polishing it.
 - Shorten past the point of clarity. Cutting words is not the goal. Removing ambiguity is the goal. Past a certain point compression starts costing the reader time rather than saving it, so stop when the sentence is unambiguous, not when it is shortest.
 
 ## Additional Resources
 
+- **`references/chinese-rules.md`** — the Chinese ruleset, with rationale and do/don't examples for each rule.
 - **`references/writing-rules.md`** — fuller summary of the 9 rule sections and dictionary structure, with citations to the official standard and secondary sources.
 - **`examples/before-after.md`** — worked examples, including official STE examples and agent-output examples built for this skill.
-- **`scripts/ste-lint.py`** — deterministic, stdlib-only linter for the structural rules, including dangling-conjunction in supported list items, plus a synonym-rotation check (one word, one meaning) scoped per file. Exit 1 when hard violations exceed `--baseline` (default 0); advisory findings (passive voice, compound tenses) never fail the run; `--disable` silences named rules. It never flags hedges or modality: those are content, not style, and `--selftest` asserts that "may have failed" passes clean.
+- **`scripts/ste-lint.py`** — deterministic, stdlib-only linter for the structural rules, including dangling-conjunction in supported list items, plus a synonym-rotation check (one word, one meaning) scoped per file. Exit 1 when hard violations exceed `--baseline` (default 0); advisory findings (passive voice, compound tenses) never fail the run; `--disable` silences named rules. It never flags hedges or modality: those are content, not style, and `--selftest` asserts that "may have failed" and 「可能已失敗」 pass clean. Language is classified per sentence, so mixed zh/en lines work.

@@ -5,6 +5,10 @@ Checks only rules verifiable without ASD's dictionary. Deliberately never
 flags hedges or modality (may/might/could): the skill treats confidence as
 content, and a linter that pressures hedges out would rewrite claims.
 
+Chinese (CJK) sentences get their own rule set: English-only rules are
+skipped there, and Chinese hedges (可能/也許/應該/大概) are never flagged.
+Language is classified per sentence, not per file, so mixed lines work.
+
 Usage:
     ste-lint.py FILE [FILE ...]
     echo "text" | ste-lint.py [--json]
@@ -71,6 +75,28 @@ SYNONYM_GROUPS = [
 ]
 
 MAX_WORDS = 25  # descriptions cap; instructions cap is 20 but undetectable without context
+
+# Chinese text. A sentence that contains a Han character is a CJK sentence.
+# ponytail: Han-only detection; kana/hangul are out of scope (zh-TW is the target).
+HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+LATIN_TOKEN = re.compile(r"[A-Za-z0-9]+(?:[._'-][A-Za-z0-9]+)*")
+# Sentence ends: full-width terminators (kept with their sentence), or ASCII
+# terminators followed by whitespace (same as the English splitter).
+SENTENCE_END = re.compile(r"(?<=[。！？；])|(?<=[.!?])\s+")
+MAX_CJK_CHARS = 40  # descriptions cap; instructions cap is 30 (see SKILL.md)
+
+CJK_RULES = [
+    ("semicolon", "advisory-free",
+     re.compile(r"[;；]"),
+     "Semicolon in Chinese text (；or ;). Split into separate sentences with 。"),
+    ("marketing-adjective", "advisory-free",
+     re.compile(r"無縫|无缝|強大|强大|極致|极致|全方位|一站式|頂級|顶级|革命性|顛覆性|颠覆性|業界領先|业界领先|領先業界|领先业界|極速|极速"),
+     "Marketing adjective. Delete, or replace with the measurement that earns the claim."),
+    ("enumeration-run-on", "advisory",
+     # 5+ items chained by 、 with no other punctuation between them
+     re.compile(r"[^、，,。！？；;：:\s]+(?:、[^、，,。！？；;：:\s]+){4,}"),
+     "Five or more items chained with 、. Use a numbered or bulleted list."),
+]
 
 CODE_FENCE = re.compile(r"^(```|~~~)")
 INLINE_CODE = re.compile(r"`[^`]*`")
@@ -238,6 +264,77 @@ def _dangling_conjunction_findings(text, filename):
     return findings
 
 
+def _lint_english(line, lineno, source_column, filename, findings, seen_synonyms):
+    """Apply the English rules to one line or English sentence. Return word count."""
+    for rule_id, level, pattern, msg in RULES:
+        for m in pattern.finditer(line):
+            if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(
+                line[:m.start()]
+            ):
+                continue
+            findings.append({"file": filename, "line": lineno,
+                             "col": source_column + m.start() + 1,
+                             "rule": rule_id, "level": level,
+                             "match": m.group(0), "message": msg})
+    for gi, group in enumerate(SYNONYM_GROUPS):
+        for base in group:
+            if (gi, base) in seen_synonyms:
+                continue
+            m = _word_re(base).search(line)
+            if m:
+                seen_synonyms[(gi, base)] = (
+                    lineno, source_column + m.start() + 1, m.group(0)
+                )
+    for sent in re.split(r"(?<=[.!?])\s+", line):
+        n = len(sent.split())
+        if n > MAX_WORDS:
+            findings.append({"file": filename, "line": lineno,
+                             "col": source_column + 1,
+                             "rule": "long-sentence", "level": "advisory-free",
+                             "match": f"{n} words",
+                             "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
+    return len(line.split())
+
+
+def _sentences(line):
+    """Yield (offset, sentence) pairs for a line that contains Chinese text."""
+    start = 0
+    for m in SENTENCE_END.finditer(line):
+        if m.start() > start:
+            yield start, line[start:m.start()]
+        start = max(start, m.end())
+    if line[start:].strip():
+        yield start, line[start:]
+
+
+def _cjk_length(sent):
+    """Han characters plus Latin words/numbers; punctuation and spaces excluded."""
+    return len(HAN.findall(sent)) + len(LATIN_TOKEN.findall(sent))
+
+
+def _lint_cjk(sent, lineno, source_column, filename, findings):
+    """Apply the Chinese rules to one CJK sentence. Return its length units.
+
+    English-only rules (phrasal verbs, passive, perfect tense, nominalization,
+    English marketing words, synonym rotation) are skipped on purpose. No rule
+    looks at hedges (可能/也許/應該/大概): confidence is content.
+    """
+    for rule_id, level, pattern, msg in CJK_RULES:
+        for m in pattern.finditer(sent):
+            findings.append({"file": filename, "line": lineno,
+                             "col": source_column + m.start() + 1,
+                             "rule": rule_id, "level": level,
+                             "match": m.group(0), "message": msg})
+    n = _cjk_length(sent)
+    if n > MAX_CJK_CHARS:
+        findings.append({"file": filename, "line": lineno,
+                         "col": source_column + 1,
+                         "rule": "long-sentence", "level": "advisory-free",
+                         "match": f"{n} chars",
+                         "message": f"Chinese sentence has {n} characters (cap {MAX_CJK_CHARS}). Split it."})
+    return n
+
+
 def lint(text, filename="<stdin>"):
     findings = []
     words_total = 0
@@ -255,34 +352,20 @@ def lint(text, filename="<stdin>"):
         segments = table_cells.get(lineno - 1, [(raw_line, 0)])
         for segment, source_column in segments:
             line = INLINE_CODE.sub("", segment)
-            words_total += len(line.split())
-            for rule_id, level, pattern, msg in RULES:
-                for m in pattern.finditer(line):
-                    if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(
-                        line[:m.start()]
-                    ):
-                        continue
-                    findings.append({"file": filename, "line": lineno,
-                                     "col": source_column + m.start() + 1,
-                                     "rule": rule_id, "level": level,
-                                     "match": m.group(0), "message": msg})
-            for gi, group in enumerate(SYNONYM_GROUPS):
-                for base in group:
-                    if (gi, base) in seen_synonyms:
-                        continue
-                    m = _word_re(base).search(line)
-                    if m:
-                        seen_synonyms[(gi, base)] = (
-                            lineno, source_column + m.start() + 1, m.group(0)
-                        )
-            for sent in re.split(r"(?<=[.!?])\s+", line):
-                n = len(sent.split())
-                if n > MAX_WORDS:
-                    findings.append({"file": filename, "line": lineno,
-                                     "col": source_column + 1,
-                                     "rule": "long-sentence", "level": "advisory-free",
-                                     "match": f"{n} words",
-                                     "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
+            if not HAN.search(line):
+                # English-only line: unchanged pre-CJK path.
+                words_total += _lint_english(line, lineno, source_column,
+                                             filename, findings, seen_synonyms)
+                continue
+            for offset, sent in _sentences(line):
+                column = source_column + offset
+                if HAN.search(sent):
+                    words_total += _lint_cjk(sent, lineno, column,
+                                             filename, findings)
+                else:
+                    words_total += _lint_english(sent, lineno, column,
+                                                 filename, findings,
+                                                 seen_synonyms)
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -443,7 +526,56 @@ def selftest():
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
-    print("selftest OK")
+
+    # Chinese (CJK) sentences
+    cjk_cases = 0
+    findings, _ = lint("代理程式刪除暫存檔。")
+    assert findings == [], findings
+    cjk_cases += 1
+    for text in ("刪除暫存檔；重新啟動服務。", "刪除暫存檔;重新啟動服務。"):
+        findings, _ = lint(text)
+        assert [f["rule"] for f in findings] == ["semicolon"], findings
+        cjk_cases += 1
+    findings, _ = lint("系" * (MAX_CJK_CHARS + 1) + "。")
+    long_cjk = [f for f in findings if f["rule"] == "long-sentence"]
+    assert len(long_cjk) == 1 and long_cjk[0]["match"] == f"{MAX_CJK_CHARS + 1} chars"
+    cjk_cases += 1
+    findings, _ = lint("系" * MAX_CJK_CHARS + "。")
+    assert findings == [], findings
+    cjk_cases += 1
+    # hedges are content: never flagged
+    for text in ("請求可能已失敗。", "原因也許是逾時。", "服務應該已重新啟動。", "磁碟大概已滿。"):
+        findings, _ = lint(text)
+        assert findings == [], (text, findings)
+        cjk_cases += 1
+    findings, _ = lint("這是無縫整合的一站式平台。")
+    assert [f["rule"] for f in findings] == ["marketing-adjective"] * 2, findings
+    cjk_cases += 1
+    findings, _ = lint("檢查設定、日誌、快取、索引、權限。")
+    assert [(f["rule"], f["level"]) for f in findings] == [("enumeration-run-on", "advisory")], findings
+    cjk_cases += 1
+    findings, _ = lint("檢查設定、日誌、快取、索引。")
+    assert findings == [], findings
+    cjk_cases += 1
+    # English-only rules stay off in CJK sentences, even with embedded English
+    findings, _ = lint("請 spin up 服務。檔案 is removed 後回報。")
+    assert findings == [], findings
+    cjk_cases += 1
+    # mixed line: each sentence is classified on its own
+    findings, _ = lint("Spin up the job. 然後刪除暫存檔；回報結果。")
+    assert sorted(f["rule"] for f in findings) == ["phrasal-verb", "semicolon"], findings
+    semi = next(f for f in findings if f["rule"] == "semicolon")
+    assert semi["col"] == len("Spin up the job. 然後刪除暫存檔") + 1, semi
+    cjk_cases += 1
+    # English-only text: identical results through the CJK-aware path
+    english = "The panel is removed; spin up the job. We have received the report."
+    findings_a, words_a = lint(english)
+    findings_b = []
+    words_b = _lint_english(english, 1, 0, "<stdin>", findings_b, {})
+    findings_b.sort(key=lambda f: (f["line"], f["col"]))
+    assert findings_a == findings_b and words_a == words_b, (findings_a, findings_b)
+    cjk_cases += 1
+    print(f"selftest OK ({cjk_cases} CJK cases)")
 
 
 def main(argv):
